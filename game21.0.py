@@ -1,4 +1,5 @@
 import json
+import copy
 import random
 import os
 import time
@@ -76,7 +77,7 @@ class GameTime:
             s.months -= 12
             s.years += 1
         if player["days"] == 1 and not player["nado"]:
-            quests ["Песня Трех Источников"]["quest_befor_this"] = True
+            update_quest_availability()
             player["nado"] = True
         stamina_reg = (minutes // 60) * 5
         player["stamina"] = min(player["stamina"] + stamina_reg, player["max_stamina"])
@@ -291,52 +292,72 @@ def name_creation():
 
 current_location = "Храм Двух Лун"
 
-quests = {
-    "Пробуждение в Храме":{
-        "description": "Новый мир ждет! Нужно понять, как здесь все устроенно.",
-        "trigers": [None],
-        "reward":{"gold": 50, "xp": 10},
-        "stages": {
-            "dialog": {"hint": "Послушайте, что говорит Аямэ.", "index": 0, "started": False, "completed": False}, 
-            "training":{"hint": "Ступайте на тренировку.", "index": 1, "started": False, "completed": False}, #training()
-            "first_battle": {"hint": "Победите своего первого противника!", "index": 2, "started": False, "completed": False}, #folowing()
-        },
-        "quest_befor_this": True,
-        "started": False,
-        "completed": False
-    },
-    "Песня Трех Источников":{
-        "description": "Найти три артефакта для открытия врат в подземелье.",
-        "trigers": [None],
-        "reward":{"gold": 200, "xp": 30},
-        "stages": {
-            "dialog":{"hint": "Послушайте Аямэ в чайном домике.", "index": 0, "started": False, "completed": False},#dialog_with_ayame_ochaya():
-            "heart_of_water":{"hint": "Добыть кристалл в Саду Лунных Водопадов, победив Духа Воды.", "index": 1, "started":False, "completed": False},
-            "second_step":{"hint": "Добыть Обсидиановый кинжал в пещерах.", "index": 2, "started": False, "completed": False},
-            "fan_of_winds":{"hint": "Украсть Веер Ветров из логова бандитов в Рыбацкой Деревне.", "index": 3, "started": False, "completed": False},
-            "combine_artifacts":{"hint": "Вернуться к Аямэ с тремя артефактами.", "index": 4, "started": False, "completed": False}
-        },
-        "quest_befor_this": False,
+def make_quest(description, reward, requires, stages, available=False):
+    """Create a quest entry with a consistent state and location-bound stages."""
+    return {
+        "description": description,
+        "reward": reward,
+        "requires": requires,
+        "available": available,
         "started": False,
         "completed": False,
-        "heart_of_water": False,
-        "blood_of_earth": False,
-        "fan_of_winds": False
-    },
-    "Тень Предательства":{
-        "description":"Раскрыть заговор среди кицунэ. Один из советников Аямэ тайно служит Кайто.",
-        "trigers": [],
-        "reward":{},
-        "stages":{
-            "uliki":{},
-            "shantazh":{},
-            "end":{}
+        "stages": {
+            stage_id: {
+                "hint": hint,
+                "location": location,
+                "started": False,
+                "completed": False,
+            }
+            for stage_id, hint, location in stages
         },
-        "quest_befor_this": False,
-        "started":  False,
-        "completed": False,
     }
+
+
+quests = {
+    "Пробуждение в Храме": make_quest("Понять, почему ГГ оказался в Мире Теней, и пережить первое нападение они.", {"gold": 50, "xp": 10}, [], [("dialog", "Выслушать Аямэ в Храме Двух Лун.", "Храм Двух Лун"), ("training", "Пройти тренировку с Аямэ.", "Храм Двух Лун"), ("first_battle", "Победить первого они в Бамбуковом Лесу.", "Бамбуковый Лес")], True),
+    "Знак хризантемы": make_quest("Восстановить алтарь у священного источника и узнать значение печати ГГ.", {"gold": 80, "xp": 20}, ["Пробуждение в Храме"], [("tablets", "Собрать таблички с именами погибших на Рисовых Полях.", "Рисовые Поля"), ("altar", "Очистить алтарь у источника.", "Храм Двух Лун")]),
+    "Песня Трех Источников": make_quest("Собрать реликвии стихий, чтобы открыть путь к мастеру Рэндзиро.", {"gold": 200, "xp": 30}, ["Знак хризантемы"], [("dialog", "Поговорить с Аямэ в Чайном Доме.", "Чайный Дом"), ("heart_of_water", "Получить Сердце Воды в Саду Лунных Водопадов.", "Сад Лунных Водопадов"), ("obsidian_dagger", "Найти Обсидиановый Кинжал в Заброшенных Шахтах.", "Заброшенные Шахты"), ("fan_of_winds", "Вернуть Веер Ветров в Рыбацкой Деревне.", "Рыбацкая Деревня")]),
+    "Голос в тумане": make_quest("Расследовать появление призрачных воинов и найти колокольчик-фурин.", {"gold": 90, "xp": 25}, ["Песня Трех Источников"], [("investigate", "Исследовать туман на Рисовых Полях.", "Рисовые Поля"), ("furin", "Решить судьбу колокольчика-фурин.", "Рисовые Поля")]),
+    "Дорога к мастеру": make_quest("Пройти испытания ками и найти убежище мастера Рэндзиро.", {"gold": 120, "xp": 35}, ["Песня Трех Источников"], [("kami", "Решить загадку ками в Бамбуковом Лесу.", "Бамбуковый Лес"), ("master", "Встретиться с Рэндзиро на Горе Амацу.", "Гора Амацу")]),
+    "Кровь Черного Дракона": make_quest("Добыть осколок Гнева из Заброшенных Шахт.", {"gold": 160, "xp": 45}, ["Дорога к мастеру"], [("mine", "Спуститься к проклятому шахтёру.", "Заброшенные Шахты"), ("fragment", "Очистить или забрать осколок Гнева.", "Заброшенные Шахты")]),
+    "Танец лисьих огней": make_quest("Пройти иллюзии кицунэ и получить осколок Страха.", {"gold": 170, "xp": 45}, ["Кровь Черного Дракона"], [("setsu", "Поговорить с Сэцу в Чайном Доме.", "Чайный Дом"), ("illusions", "Пройти иллюзии кицунэ.", "Бамбуковый Лес")]),
+    "Песня моря": make_quest("Помочь духу невесты Мидори и получить осколок Тоски.", {"gold": 180, "xp": 50}, ["Танец лисьих огней"], [("kimono", "Найти свадебное кимоно в Порту Алой Луны.", "Порт Алой Луны"), ("midori", "Вернуть кимоно Мидори в Рыбацкой Деревне.", "Рыбацкая Деревня")]),
+    "Клятва сакуры": make_quest("Заручиться поддержкой клана самураев.", {"gold": 200, "xp": 55}, ["Песня моря"], [("champion", "Принять вызов чемпиона на Горе Амацу.", "Гора Амацу"), ("oath", "Заключить клятву сакуры.", "Храм Двух Лун")]),
+    "Шёпот ниндзя": make_quest("Раскрыть заговор и спасти Томоэ от яда.", {"gold": 200, "xp": 55}, ["Песня моря"], [("clues", "Собрать улики на Улице Красных Фонарей.", "Улица Красных Фонарей"), ("rescue", "Спасти Томоэ в Деревне Ниндзя.", "Деревня Ниндзя")]),
+    "Сердце кузнеца": make_quest("Помочь Гэну выковать оружие из драконьей стали.", {"gold": 220, "xp": 60}, ["Песня моря"], [("ore", "Добыть драконью сталь в Заброшенных Шахтах.", "Заброшенные Шахты"), ("forge", "Выковать оружие в Кузнице Драконьей Стали.", "Кузница Драконьей Стали")]),
+    "Тень Предательства": make_quest("Найти советника Аяме, который тайно служит Кайто.", {"gold": 220, "xp": 60}, ["Клятва сакуры", "Шёпот ниндзя", "Сердце кузнеца"], [("clues", "Собрать улики в Чайном Доме.", "Чайный Дом"), ("choice", "Решить судьбу Норио в Храме Двух Лун.", "Храм Двух Лун")]),
+    "Последний закат": make_quest("Удержать храм во время первой волны вторжения.", {"gold": 250, "xp": 70}, ["Тень Предательства"], [("defense", "Защитить Храм Двух Лун.", "Храм Двух Лун")]),
+    "Проклятый ритуал": make_quest("Проникнуть в лагерь Кайто и разрушить питающий Врата алтарь.", {"gold": 280, "xp": 80}, ["Последний закат"], [("infiltrate", "Проникнуть в Логово Кайто.", "Логово Кайто"), ("altar", "Разрушить или поглотить силу алтаря.", "Логово Кайто")]),
+    "Лицо предателя": make_quest("Сразиться с Кайто на вершине пагоды.", {"gold": 350, "xp": 100}, ["Проклятый ритуал"], [("duel", "Подняться на Пагоду Кайто и победить его.", "Пагода Кайто")]),
+    "Жертва зеркала": make_quest("Решить судьбу Зеркала Амацу.", {"gold": 0, "xp": 100}, ["Лицо предателя"], [("mirror", "Выбрать судьбу Зеркала у Врат Теней.", "Врата Теней")]),
+    "Прощание с Аяме": make_quest("Провести последний ритуал вместе с Аяме.", {"gold": 0, "xp": 150}, ["Жертва зеркала"], [("ritual", "Провести ритуал у Врат Теней.", "Врата Теней")]),
+    "Доспехи забытых воинов": make_quest("Собрать части легендарного доспеха и вернуть имена павшим.", {"gold": 100, "xp": 30}, ["Знак хризантемы"], [("helm", "Найти шлем на Рисовых Полях.", "Рисовые Поля"), ("cuirass", "Найти кирасу в Заброшенных Шахтах.", "Заброшенные Шахты"), ("return", "Вернуть доспех храму.", "Храм Двух Лун")]),
+    "Дом для дзасики-вараси": make_quest("Вернуть духу ребёнка его игрушку.", {"gold": 70, "xp": 20}, ["Знак хризантемы"], [("toy", "Найти игрушку на Рынке Двух Ликов.", "Рынок Двух Ликов"), ("home", "Отнести игрушку в Дом.", "Дом")]),
+    "Колокол без рассвета": make_quest("Снять проклятие с храма в Порту Алой Луны.", {"gold": 110, "xp": 35}, ["Песня Трех Источников"], [("bell", "Осмотреть проклятый колокол в Порту Алой Луны.", "Порт Алой Луны"), ("cleanse", "Очистить колокол в Храме Двух Лун.", "Храм Двух Лун")]),
+    "Письма Рэндзиро": make_quest("Найти пять писем мастера к Кайто, чтобы открыть путь к пощаде.", {"gold": 150, "xp": 45}, ["Дорога к мастеру"], [("first", "Найти первое письмо на Горе Амацу.", "Гора Амацу"), ("second", "Найти второе письмо в Чайном Доме.", "Чайный Дом"), ("third", "Найти третье письмо в Порту Алой Луны.", "Порт Алой Луны"), ("fourth", "Найти четвёртое письмо в Заброшенных Шахтах.", "Заброшенные Шахты"), ("fifth", "Найти последнее письмо в Логове Кайто.", "Логово Кайто")]),
 }
+
+# Runtime registry for location actions created by active quest stages.
+STORY_ACTIONS = {}
+DEFAULT_QUESTS = copy.deepcopy(quests)
+
+
+def merge_loaded_quests(saved_quests):
+    """Keep old save progress while adding quests and fields introduced later."""
+    merged_quests = copy.deepcopy(DEFAULT_QUESTS)
+    for quest_name, saved_quest in saved_quests.items():
+        if quest_name not in merged_quests:
+            merged_quests[quest_name] = saved_quest
+            continue
+        target = merged_quests[quest_name]
+        for key, value in saved_quest.items():
+            if key != "stages":
+                target[key] = value
+        for stage_name, saved_stage in saved_quest.get("stages", {}).items():
+            if stage_name in target["stages"]:
+                target["stages"][stage_name].update(saved_stage)
+    return merged_quests
+
 sub_quests = {}
 
 
@@ -704,6 +725,122 @@ locations = {
         "stamina_cos": 3
     }
     }
+
+# Сюжетные квесты используют те же меню локаций, что и существующие действия.
+# Недостающие точки добавляются как обычные локации, поэтому для них не нужен
+# отдельный режим или специальное меню.
+def ensure_story_locations():
+    story_locations = {
+        "Деревня Ниндзя": {
+            "description": "Скрытая деревня в чаще леса; здесь Томоэ и её разведчики готовятся к войне.",
+            "connections": {"юг": "Бамбуковый Лес"},
+            "actions": ["задания", "сохраниться", "инвентарь", "настройки", "выйти_в_меню"],
+            "stamina_cos": 3,
+        },
+        "Кузница Драконьей Стали": {
+            "description": "Жаркая кузница Гэна у подножия вулкана. Здесь рождается оружие против Бездны.",
+            "connections": {"запад": "Рынок Двух Ликов"},
+            "actions": ["задания", "сохраниться", "инвентарь", "настройки", "выйти_в_меню"],
+            "stamina_cos": 3,
+        },
+        "Пагода Кайто": {
+            "description": "Чёрная пагода над разломом. Наверху ждёт последняя дуэль с Кайто.",
+            "connections": {"вниз": "Логово Кайто"},
+            "actions": ["задания", "сохраниться", "инвентарь", "настройки", "выйти_в_меню"],
+            "stamina_cos": 4,
+        },
+        "Врата Теней": {
+            "description": "Две луны отражаются в расколотом Зеркале Амацу. Здесь решается судьба миров.",
+            "connections": {"назад": "Пагода Кайто"},
+            "actions": ["задания", "сохраниться", "инвентарь", "настройки", "выйти_в_меню"],
+            "stamina_cos": 2,
+        },
+    }
+    for name, data in story_locations.items():
+        locations.setdefault(name, data)
+    locations["Бамбуковый Лес"]["connections"].setdefault("север", "Деревня Ниндзя")
+    locations["Рынок Двух Ликов"]["connections"].setdefault("кузница дракона", "Кузница Драконьей Стали")
+    locations["Логово Кайто"]["connections"].setdefault("пагода", "Пагода Кайто")
+    locations["Пагода Кайто"]["connections"].setdefault("врата", "Врата Теней")
+
+
+def story_action_id(quest_name, stage_name):
+    return f"story:{quest_name}:{stage_name}"
+
+
+def story_action_label(action):
+    data = STORY_ACTIONS.get(action)
+    return data["hint"] if data else action.replace("_", " ")
+
+
+def update_quest_availability():
+    """Open quests whose prerequisites are complete without changing their state."""
+    for quest in quests.values():
+        if not quest["started"] and not quest["completed"]:
+            quest["available"] = all(quests[name]["completed"] for name in quest["requires"])
+
+
+def add_story_stage_action(quest_name, stage_name):
+    ensure_story_locations()
+    stage = quests[quest_name]["stages"][stage_name]
+    action = story_action_id(quest_name, stage_name)
+    STORY_ACTIONS[action] = {"quest": quest_name, "stage": stage_name, "hint": stage["hint"]}
+    actions = locations[stage["location"]]["actions"]
+    if action not in actions:
+        actions.insert(0, action)
+
+
+def start_quest(quest_name):
+    update_quest_availability()
+    quest = quests[quest_name]
+    if not quest["available"] or quest["completed"]:
+        return False
+    quest["started"] = True
+    for stage_name, stage in quest["stages"].items():
+        if not stage["completed"]:
+            stage["started"] = True
+            add_story_stage_action(quest_name, stage_name)
+            return True
+    return False
+
+
+def advance_story_stage(quest_name, stage_name):
+    """Complete the active stage, reveal the next one, and pay quest rewards."""
+    quest = quests[quest_name]
+    stage = quest["stages"][stage_name]
+    action = story_action_id(quest_name, stage_name)
+    actions = locations.get(stage["location"], {}).get("actions", [])
+    if action in actions:
+        actions.remove(action)
+    stage["started"] = False
+    stage["completed"] = True
+
+    for next_name, next_stage in quest["stages"].items():
+        if not next_stage["completed"]:
+            next_stage["started"] = True
+            add_story_stage_action(quest_name, next_name)
+            return False
+
+    quest["completed"] = True
+    quest["started"] = False
+    player["money"] += quest["reward"].get("gold", 0)
+    player["xp"] += quest["reward"].get("xp", 0)
+    level_up()
+    update_quest_availability()
+    return True
+
+
+def restore_active_quest_actions():
+    """Recreate location actions for stages that were active when a save was made."""
+    ensure_story_locations()
+    for quest_name, quest in quests.items():
+        if not quest.get("started", False) or quest.get("completed", False):
+            continue
+        for stage_name, stage in quest["stages"].items():
+            if stage.get("started", False) and not stage.get("completed", False):
+                add_story_stage_action(quest_name, stage_name)
+                break
+
 
 #дом
 def check_house():
@@ -1141,7 +1278,7 @@ def load_game(slot):
         with open(save_path, "r", encoding='utf-8') as f:
             save_data = json.load(f)
             player = save_data["player"]
-            quests = save_data["quests"]
+            quests = merge_loaded_quests(save_data.get("quests", {}))
             for field, default_value in DEFAULT_PLAYER.items():
                 if field not in player:
                     player[field] = default_value.copy() if isinstance(default_value, (dict, list)) else default_value
@@ -1155,6 +1292,8 @@ def load_game(slot):
                 hours=game_time_data.get("hours", 5),
                 minutes=game_time_data.get("minutes", 0)
             )
+            restore_active_quest_actions()
+            update_quest_availability()
         print(f"Игра загружена из слота {slot}")
     except FileNotFoundError:
         print("Сохранение не найдено.")
@@ -1666,7 +1805,7 @@ def location_menu():
         for i, action in enumerate(act, start=len(connections)):
             pref = " > " if i == current_index else "  "
             krch = str(k)
-            print(f" │{pref}{krch}. {action.replace('_', ' ')}")
+            print(f" │{pref}{krch}. {story_action_label(action)}")
             k += 1
         k = 1
         key = get_key()
@@ -2097,9 +2236,11 @@ def folowing():
         slow_print("После нескольких секунд, Аямэ уже не было в лесу." )
         slow_print("Остались только вы, вместе с тишиной и звуками светляков.")
         input("Нажмите Enter...")
-        quests ["Пробуждение в Храме"]["stages"]["first_battle"]["completed"] = True
-        quests ["Пробуждение в Храме"]["completed"] = True
-        quests ["Песня Трех Источников"]["quest_befor_this"] = True
+        awakening = quests["Пробуждение в Храме"]
+        awakening["stages"]["first_battle"]["completed"] = True
+        awakening["started"] = False
+        awakening["completed"] = True
+        update_quest_availability()
         current_location = "Бамбуковый Лес"
 
 def visit_izakaya():
@@ -2287,6 +2428,16 @@ def play_dice():
 def handle_location_action(action):
     clear()
     global a, current_location, player, locations
+    if action in STORY_ACTIONS:
+        quest_name = STORY_ACTIONS[action]["quest"]
+        stage_name = STORY_ACTIONS[action]["stage"]
+        completed = advance_story_stage(quest_name, stage_name)
+        if completed:
+            print(f"Квест «{quest_name}» завершён!")
+        else:
+            print("Этап квеста завершён. Новая цель отмечена в меню заданий.")
+        input("Нажмите Enter...")
+        return
     if current_location == "Порт Алой Луны":
         if action == "нанять_корабельщика":
             ship_going()
@@ -2725,14 +2876,16 @@ def show_quest_details(quest_name):
             print(f"\nАртефакты: {', '.join(collected)}")
         print(f"\nПрогресс: {calculate_quest_progress(quest)}%")
         options = ["Вернуться к списку заданий"]
+        if quest.get("available", False) and not quest.get("started", False) and not quest.get("completed", False):
+            options.insert(0, "Начать задание")
         choice = handle_menu(options, "Действия:")
         
         if choice == -1:
             continue
             
-        if choice == 0 and "Начать задание" in options:
-            quest["started"] = True
-            print("Задание начато!")
+        if options[choice] == "Начать задание":
+            start_quest(quest_name)
+            print("Задание начато! Цель добавлена в нужную локацию.")
             input("Нажмите Enter...")
         else:
             break
@@ -2790,9 +2943,10 @@ current_quest_page = 0
 selected_quest_index = 0
 def quest_menu():
     global current_quest_page, selected_quest_index
+    update_quest_availability()
     available_quests = []
     for quest_name, quest_data in quests.items():
-        if quest_data.get("started", False) or quest_data.get("quest_befor_this", False):
+        if quest_data.get("started", False) or quest_data.get("available", False) or quest_data.get("completed", False):
             available_quests.append(quest_name)
     if not available_quests:
         print("Нет доступных заданий")
@@ -2814,7 +2968,7 @@ def quest_menu():
         options = []
         for i, quest_name in enumerate(current_quests):
             quest = quests[quest_name]
-            status = "✓" if quest.get("completed", False) else "◯"
+            status = "✓" if quest.get("completed", False) else "◯" if quest.get("started", False) else "●"
             options.append(f"{status} {quest_name}")
         if cur_page > 0:
             options.append("◀ Предыдущая страница")
