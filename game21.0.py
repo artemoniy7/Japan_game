@@ -3,10 +3,37 @@ import random
 import os
 import time
 import sys
-import pygame
-import msvcrt
+
+# The game loop loads pygame only when it is started.  This keeps narrative and
+# game-state helpers importable by tools even when the optional audio dependency
+# is not installed.
+pygame = None
+
+# `msvcrt` is available only on Windows.  Keeping input behind one helper makes
+# the terminal game usable on Linux/macOS as well (and avoids importing a
+# Windows-only module there).
+if os.name == "nt":
+    import msvcrt
+
+    def get_key():
+        return msvcrt.getch().lower()
+else:
+    import termios
+    import tty
+
+    def get_key():
+        """Read one key press from a POSIX terminal and return it as bytes."""
+        file_descriptor = sys.stdin.fileno()
+        previous_settings = termios.tcgetattr(file_descriptor)
+        try:
+            tty.setraw(file_descriptor)
+            return sys.stdin.buffer.read(1).lower()
+        finally:
+            termios.tcsetattr(file_descriptor, termios.TCSADRAIN, previous_settings)
 
 SAVE_FILE = "save_data.json"
+SAVE_DIR = "saves"
+SAVE_DIR2 = "system"
 #Внутриигровое время
 class GameTime:
     global player
@@ -24,8 +51,10 @@ class GameTime:
         #if player["days_befor_disaster"]:
         #    demons_are_coming()
         if player["level"] >= 2 and not player["trigger_for_abyss"]:
-            locations["Заброшенные Шахты"].append["actions"]["исследовать_пещеры"]
-            player["trigger_for_aabyss"] = True
+            mine_actions = locations["Заброшенные Шахты"]["actions"]
+            if "исследовать_пещеры" not in mine_actions:
+                mine_actions.append("исследовать_пещеры")
+            player["trigger_for_abyss"] = True
         check_house()
         s.minutes += minutes
         if player["stamina"] <= 0:
@@ -90,12 +119,12 @@ def print_menu(options, index, zaglav=None):
         prefix = "  > " if i == index else "  "
         print(f"{prefix}{option}")
 def demons_are_coming():
-    slow_print()#########################################################################################################
+    slow_print("Демоническая энергия становится сильнее. Нужно остановить Кайто.")
 def handle_menu(options, glav=None):
     index = 0
     print_menu(options, index, glav)
     while True:
-        key = msvcrt.getch().lower()
+        key = get_key()
         if glav:
             if key == b'w' and index >= 0:
                 if index == 0:
@@ -232,6 +261,8 @@ player = {
     "skills_act": False, #можно ли использовать скилы в бою 
     "you_can_run": False #можно ли сбежать с боя
     }
+# Used to fill fields that were added after an older save was created.
+DEFAULT_PLAYER = player.copy()
 music = {
     "VOLUME_MUSIC" : 0.6,
     "VOLUME_SFX" : 0.8,
@@ -258,7 +289,7 @@ def name_creation():
     name = input("Введите имя персонажу: ")
     return name
 
-current_location = "Хpам Двух Лун"
+current_location = "Храм Двух Лун"
 
 quests = {
     "Пробуждение в Храме":{
@@ -303,7 +334,7 @@ quests = {
         },
         "quest_befor_this": False,
         "started":  False,
-        "complted": False,
+        "completed": False,
     }
 }
 sub_quests = {}
@@ -703,7 +734,7 @@ def beginning():
     player ["name"] = "Неизвестный"
     while True:
         if music["SFX"]:
-            play_sound_with_tag("sound\keyboard.ogg", "key", volume = 0.2)
+            play_sound_with_tag("sound/keyboard.ogg", "key", volume = 0.2)
         time.sleep(0.5)
         slow_print("Япония", 0.2)
         time.sleep(0.5)
@@ -716,11 +747,11 @@ def beginning():
             stop_sound_by_tag("key", stop = 400)
         time.sleep(1)
         if music["SFX"]:
-            play_sound_with_tag("sound\city.ogg", "key", lop = -1, volume = 0.1 )
-            play_sound_with_tag("sound\sain_city.ogg", "rain", lop = -1, volume = 0.2 )
+            play_sound_with_tag("sound/city.ogg", "key", lop = -1, volume = 0.1 )
+            play_sound_with_tag("sound/sain_city.ogg", "rain", lop = -1, volume = 0.2 )
         slow_print("Свет экранов и неоновых вывесок отражается в стеклянных фасадах высоток." )
         if music["SFX"]:
-            play_sound_with_tag("sound\game_cont.ogg", "con", lop = -1, volume = music["VOLUME_SFX"])
+            play_sound_with_tag("sound/game_cont.ogg", "con", lop = -1, volume = music["VOLUME_SFX"])
         slow_print("В комнате, заваленной коллекционными фигурками и коробками от игр, "
             "вы сидите перед монитором, погруженный в игру" )
         print()
@@ -735,7 +766,7 @@ def beginning():
         time.sleep(2)
         print()
         if music["SFX"]:
-            play_sound_with_tag("sound\Flash.ogg", "flash", volume = music["VOLUME_SFX"] )
+            play_sound_with_tag("sound/Flash.ogg", "flash", volume = music["VOLUME_SFX"] )
         slow_print("Темнота." )
         if music["SFX"]:
             stop_sound_by_tag("flash", stop= 1000)
@@ -880,7 +911,7 @@ def beginning():
                 stop_sound_by_tag("begin", stop=1500)
                 a["begin"]=False
             clear()
-        current_location = "Хpам Двух Лун"
+        current_location = "Храм Двух Лун"
         if "короткий меч-вакидзаси" in player["inventory"]:
             continue
         else:
@@ -1111,8 +1142,9 @@ def load_game(slot):
             save_data = json.load(f)
             player = save_data["player"]
             quests = save_data["quests"]
-            player.setdefault("stamina", 100)
-            player.setdefault("max_stamina", 100)
+            for field, default_value in DEFAULT_PLAYER.items():
+                if field not in player:
+                    player[field] = default_value.copy() if isinstance(default_value, (dict, list)) else default_value
             game_time_data = save_data["game_time"]
             current_location = save_data.get("current_location", "Храм Двух Лун")
             locations = save_data.get("locations", locations)
@@ -1131,6 +1163,9 @@ def load_game(slot):
         return
     except Exception as e:
         print(f"Ошибка загрузки: {str(e)}")
+        input("Нажмите Enter, чтобы продолжить")
+        clear()
+        return
     input("Нажмите Enter, чтобы продолжить")
     clear()
     if a["main"]:
@@ -1159,12 +1194,14 @@ def battle(enemy=None):
     if music["music"] and not a["battle"]:
         play_sound_with_tag("music/battle_them.ogg", "battle", -1, music["VOLUME_MUSIC"])
         a["battle"] = True
+    if isinstance(enemy, list):
+        enemy = random.choice(enemy)
     if not enemy:
         enemy = random.choice(enemies)
     if player["stamina"] < 20:
         print("◈ Вы слишком устали для битвы!")
         input("Нажмите Enter...")
-        return
+        return False
     enemy_hp = enemy["hp"]
     base_dmg = (5, 10)
     weapon = weapons_data.get(player.get("equipped_weapon", ""), {})
@@ -1221,7 +1258,7 @@ def battle(enemy=None):
                 game_time.time_up(10)
                 stop_sound_by_tag("battle", 2000)
                 a["battle"] = False
-                return
+                return False
             else:
                 print("Нельзя бежать!")
                 input("Нажмите Enter...")
@@ -1244,10 +1281,10 @@ def battle(enemy=None):
             print("\n Не все могут быть героями...")
             input("Нажмите Enter...")
             main_menu()
-            return
+            return False
     loot = random.choice(enemy["loot"])
     gold = random.randint(*enemy["gold"])
-    xp_gain = enemy_hp // 3
+    xp_gain = enemy["hp"] // 3
     clear()
     print(f"\n {enemy['name']} побежден!")
     print(f"Получено: {loot}, {gold} золота, {xp_gain} опыта!")
@@ -1259,6 +1296,7 @@ def battle(enemy=None):
     stop_sound_by_tag("battle", 2000)
     a["battle"] = False
     input("Нажмите Enter...")
+    return True
 
 #бой с боссом
 def battle_with_boss(boss):
@@ -1289,20 +1327,21 @@ def battle_with_boss(boss):
             if player.get("blocking", False):
                 damage = int(damage * 0.5)
                 player["blocking"] = False
-            boss_hp -= damage
+            boss_hp = max(0, boss_hp - damage)
             print(f"Вы нанесли {damage} урона!")
             input("\nНажмите Enter...")
             if boss_hp > 0:
                 enemy_damage = random.randint(*boss["damage"])
                 armor_def = sum(armor_data.get(item, {}).get("defense", 0) for item in [player["head"], player["body"], player["legs"]])
-                player["hp"] -= max(0, enemy_damage - armor_def)
-                print(f"{boss['name']} наносит вам {enemy_damage} урона!")
+                dealt_damage = max(0, enemy_damage - armor_def)
+                player["hp"] = max(0, player["hp"] - dealt_damage)
+                print(f"{boss['name']} наносит вам {dealt_damage} урона! (Заблокировано: {enemy_damage - dealt_damage})")
         elif action == 1:
             skill = handle_menu(["Мощный удар (-30 стамины)", "Блок (-15 стамины)"], "Выберите навык:")
             if skill == 0 and player["stamina"] >= 30:
                 weapon = weapons_data.get(player["equipped_weapon"], {"max_damage": 20})
                 damage = int(weapon["max_damage"] * 1.5)
-                boss_hp -= damage
+                boss_hp = max(0, boss_hp - damage)
                 player["stamina"] -= 30
                 print(f"Критический удар! {damage} урона!")
 
@@ -1314,10 +1353,11 @@ def battle_with_boss(boss):
         elif action == 2:
             print("Вы сбежали от босса!")
             game_time.time_up(20)
-            return
+            return False
         if player["hp"] <= 0:
             print("Вы пали в бою...")
             main_menu()
+            return False
     if boss_hp <= 0:
         print(f"\n★ {boss['name']} повержен! ★")
         player["abyss_kills"] += 1
@@ -1332,6 +1372,7 @@ def battle_with_boss(boss):
         level_up()
         game_time.time_up(60)
         input("\nНажмите Enter...")
+        return True
         
             
 # Крафт
@@ -1628,7 +1669,7 @@ def location_menu():
             print(f" │{pref}{krch}. {action.replace('_', ' ')}")
             k += 1
         k = 1
-        key = msvcrt.getch().lower()
+        key = get_key()
         max_index = (len(connections) + len(actions)) - 1 if connections else len(actions) - 1
         if key == b'w':
             current_index = (current_index - 1) % (max_index + 1)
@@ -1895,6 +1936,7 @@ def molitva():
 #битва с боссами
 def boss_batle():
     global player
+    boss = None
     if player["abyss_floor"] == 30:
         boss = {
             "name": "Тень Предательства",
@@ -1915,7 +1957,9 @@ def boss_batle():
             "special_attack": "Смертный Приговор",
             "dialog": "Неразборчиво: Т*во~ см~~ть №!*! з~есь**!"
         }
-    battle(boss, boss = True)
+    if boss is None:
+        return False
+    return battle_with_boss(boss)
     #if player["hp"] > 0:
         
 """
@@ -1987,8 +2031,8 @@ def training():
     input("Нажмите Enter...")
     clear()
     quests ["Пробуждение в Храме"]["stages"]["training"]["completed"] = True
-    locations["Хpам Двух Лун"]["connections"]["восток"] = "Бамбуковый лес"
-    locations["Хpам Двух Лун"]["actions"].remove("тренировка")
+    locations["Храм Двух Лун"]["connections"]["восток"] = "Бамбуковый Лес"
+    locations["Храм Двух Лун"]["actions"].remove("тренировка")
 
 def folowing():
     global player, current_location,a
@@ -2309,7 +2353,7 @@ def handle_location_action(action):
     if action == "задания":
         quest_menu()
         return
-    if current_location == "Бамбуковый лес" and action == "следовать_за_светлячками":
+    if current_location == "Бамбуковый Лес" and action == "следовать_за_светлячками":
         folowing()
     if action == "купить_дом":
         if not player["house_build"]:
@@ -2317,7 +2361,7 @@ def handle_location_action(action):
                 player["money"] -= 5000
                 player["house_day"] = game_time.days
                 print("Риелтор: 'Стройка займет 2 дня. Ждите нашего гонца!'")                
-                player["house_build"] == True
+                player["house_build"] = True
                 locations["Рынок Двух Ликов"]["actions"].remove("купить_дом")
             else:
                 print("Риелтор: 'Для покупки нужно 5000 золота!'")
@@ -2340,8 +2384,8 @@ def handle_location_action(action):
             print(f"Вы спустились на {player["abyss_floor"]} этаж...")
             input("Нажмите Enter...")
         if player["abyss_kills"] < 2:
-            a = 2 - player["abyss_kills"]
-            print(f"Нужно убить еще", a, "монстров." )
+            remaining_kills = 2 - player["abyss_kills"]
+            print(f"Нужно убить еще {remaining_kills} монстров.")
             input("Нажмите Enter...")
     if action == "исследовать_пещеры" and not player["abyss_were_found"]:
         if not player["abyss_were_found"]:
@@ -2403,19 +2447,19 @@ def handle_location_action(action):
         return
     if current_location == "Бездна":
         if action == "сразиться_с_монстром":
-            if player["abyss_floor"] == 30 and player["abyss_kills"] >= 3:
-                boss = []
+            if player["abyss_floor"] == 30 and player["abyss_kills"] >= 2:
                 boss_batle()
-            if player["abyss_floor"] == 65 and player["abyss_kills"] >= 3:
-                boss = []
+                return
+            if player["abyss_floor"] == 65 and player["abyss_kills"] >= 2:
                 boss_batle()
-            if player["abyss_floor"] < 30:
+                return
+            if player["abyss_floor"] <= 30:
                 enemy = [
                     {"name": "Заяц-Мутант", "hp": 80, "damage": (20, 30), "loot": ["шерсть", "мясо"], "gold": (15, 30)},
                     {"name": "Волк-Мутант", "hp": 85, "damage": (30, 35), "loot": ["пылающий мех",], "gold": (20, 40)},
                     {"name": "Крыса-Мутант", "hp": 80, "damage": (15, 25), "loot": ["мясо"], "gold": (20, 50)},
                 ]
-            if player["abyss_floor"] > 30 and player["abyss_floor"] < 65:
+            if player["abyss_floor"] > 30 and player["abyss_floor"] <= 65:
                 enemy = [
                     {"name": "Змея-Мутант", "hp": 120, "damage": (34, 42), "loot": ["яд тьмы", ], "gold": (55, 90)},
                     {"name": "Громадный Паук", "hp": 130, "damage": (40, 46), "loot": ["шёлк кошмара"], "gold": (45, 75)},
@@ -2425,8 +2469,7 @@ def handle_location_action(action):
                     {"name": "Проклятое Око", "hp": 200, "damage": (35, 50), "loot": ["линза света"], "gold": (70, 110)},
                     {"name": "Безглавый", "hp": 170, "damage": (32, 48), "loot": ["тряпьё"], "gold": (65, 100)}
                 ]
-            battle(enemy)
-            if enemy["hp"] < 0:
+            if battle(enemy):
                 player["abyss_kills"] += 1
 
     input("Нажмите Enter...")
@@ -2631,7 +2674,7 @@ def main_menu():
             quests ["Пробуждение в Храме"]["stages"]["dialog"]["completed"] = True
             stop_sound_by_tag("main_menu", stop=0)
             player["name"] = name_creation()
-            current_location = "Хpам Двух Лун"
+            current_location = "Храм Двух Лун"
             current_location ="Храм Двух Лун"
             player["inventory"].extend(["короткий меч-вакидзаси", "длинный клинок катана"])
             location_menu()
@@ -2663,7 +2706,7 @@ def show_quest_details(quest_name):
         stages = quest.get("stages", {})
         for stage_name, stage_data in stages.items():
             status_icon = "✓" if stage_data.get("completed", False) else "◯" if stage_data.get("started", False) else "×"
-            print(f"  {status_icon} {stage_data['hint']}")
+            print(f"  {status_icon} {stage_data.get('hint', stage_name)}")
         if quest_name == "Песня Трех Источников":
             artifacts = ["Сердце Воды", "Обсидиановый кинжал", "Веер Ветров"]
             collected = []
@@ -2789,7 +2832,7 @@ def quest_menu():
                 prefix = "  > " if i == current_index else "  "
                 print(f"{prefix}{option}")
             print(f"\nУправление: W/S - выбор, A/D - страницы, Enter - выбрать, Esc - назад")
-            key = msvcrt.getch().lower()
+            key = get_key()
             if key == b'w':
                 current_index = (current_index - 1) % len(options)
             elif key == b's':
@@ -2888,10 +2931,9 @@ def dictionary():
     print("║    ЯПОНСКИЙ СЛОВАРЬ        ║")
     print("╚════════════════════════════╝")
     
-    for cat, items in cat.items():
-        print(f"\n\033[1;36m◆ {cat.upper()} ◆\033[0m")
-        for term in sorted(items, key=lambda x: x.lower()):
-            print(f"  \033[1m{term}\033[0m: {terms[term]}")
+    print("\n\033[1;36m◆ СЛОВАРЬ ИГРЫ ◆\033[0m")
+    for term in sorted(terms, key=str.lower):
+        print(f"  \033[1m{term}\033[0m: {terms[term]}")
 
     input("\nНажмите Enter, чтобы вернуться...")
     clear()
@@ -2951,7 +2993,7 @@ def save_load_menu(mode='load'):
                 prefix = "  > " if i == index else "  "
                 print(f"{prefix}{option}")
             print(f"\nУправление: W/S - выбор, A/D - страницы, Enter - выбрать, Esc - назад")
-            key = msvcrt.getch().lower()
+            key = get_key()
             if key == b'w':
                 index = (index - 1) % len(options)
             elif key == b's':
@@ -3038,35 +3080,47 @@ def dialog_with_ayame_in_ochaya():
     quests["Песня Трех Источников"]["stages"]["dialog"]["started"] = True
     quests["Песня Трех Источников"]["stages"]["dialog"]["completed"] = True
     quests["Песня Трех Источников"]["stages"]["heart_of_water"]["started"] = True
-    locations["Сад Лунных Водопадов"]["actions"].append("сразиться_с_духом_воды")
+    waterfall_actions = locations["Сад Лунных Водопадов"]["actions"]
+    if "сразиться_с_духом_воды" not in waterfall_actions:
+        waterfall_actions.append("сразиться_с_духом_воды")
     locations["Рыбацкая Деревня"]["connections"]["пещера"] = "Пещера Бандитов"
 
 
-pygame.init()
-pygame.mixer.init(frequency=44100, channels=32)
-clear()
-SAVE_DIR = "saves"
-SAVE_DIR2 = "system"
-if not os.path.exists(SAVE_DIR):
-    os.makedirs(SAVE_DIR)
-print()
-with open("first_enter.txt", 'r') as f:
-    cont = f.read().strip()
-    if cont == "0":
-        slow_print("    星野プレセント Представляет...", 0.1)
-        time.sleep(3)
-        clear()
-        print()
-        slow_print("    Используйте W/S/Enter для управления..." )
-        time.sleep(3)
-        clear()
-        with open("first_enter.txt", 'w') as f:
-            f.write('1')
-        music_on_or_off()
-    else:
-        sound_settings_loading()
-if music["music"]:
-    play_sound_with_tag("music\main_menu_them.ogg", "main_menu", lop = -1, volume = music["VOLUME_MUSIC"])
-    a["main"] = True
+def main():
+    global pygame
+    import pygame as pygame_module
 
-main_menu()
+    pygame = pygame_module
+    pygame.init()
+    pygame.mixer.init(frequency=44100, channels=32)
+    clear()
+    if not os.path.exists(SAVE_DIR):
+        os.makedirs(SAVE_DIR)
+    print()
+    if not os.path.exists("first_enter.txt"):
+        with open("first_enter.txt", "w", encoding="utf-8") as f:
+            f.write("0")
+    with open("first_enter.txt", 'r', encoding="utf-8") as f:
+        cont = f.read().strip()
+        if cont == "0":
+            slow_print("    星野プレセント Представляет...", 0.1)
+            time.sleep(3)
+            clear()
+            print()
+            slow_print("    Используйте W/S/Enter для управления..." )
+            time.sleep(3)
+            clear()
+            with open("first_enter.txt", 'w') as f:
+                f.write('1')
+            music_on_or_off()
+        else:
+            sound_settings_loading()
+    if music["music"]:
+        play_sound_with_tag("music/main_menu_them.ogg", "main_menu", lop = -1, volume = music["VOLUME_MUSIC"])
+        a["main"] = True
+
+    main_menu()
+
+
+if __name__ == "__main__":
+    main()
