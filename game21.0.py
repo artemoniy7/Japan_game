@@ -1017,15 +1017,13 @@ def beginning():
             slow_print(f"Аяме: Пусть имя {player["name"]} станет легендой, о которой поют у придорожных алтарей." )
             slow_print("Помни — даже в мире теней есть место чести... пока бьется твое сердце." )
             slow_print("Когда ты станешь силнее, то принеси в наши мир спокойстивие." )
+            quests ["Пробуждение в Храме"]["stages"]["dialog"]["completed"] = True
             if a["begin"]:
                 stop_sound_by_tag("begin", stop=1500)
                 a["begin"]=False
-                quests ["Пробуждение в Храме"]["stages"]["dialog"]["completed"] = True
-                break
-            break
-        if a["dialog"] == True:
-
-            break
+            # Continue to the common cleanup below. Breaking here skipped it,
+            # while continuing after receiving the swords restarted the entire
+            # opening dialogue.
         if not player["bad_ending"] and not a["dialog"]:
             clear()
             slow_print("Аямэ: До недавних пор, в нашем мире обитали только два вида сущностей: люди и Китцуне." )
@@ -1050,7 +1048,7 @@ def beginning():
             clear()
         current_location = "Храм Двух Лун"
         if "короткий меч-вакидзаси" in player["inventory"]:
-            continue
+            break
         else:
             player["inventory"].extend(["короткий меч-вакидзаси", "длинный клинок катана"])
         break
